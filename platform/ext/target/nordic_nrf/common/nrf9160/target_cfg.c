@@ -559,6 +559,77 @@ enum tfm_plat_err_t spu_init_cfg(void)
     return TFM_PLAT_ERR_SUCCESS;
 }
 
+static void enable_trace(void)
+{
+#define TAD_ENABLE_ENABLE_Pos (0UL) /*!< Position of ENABLE field. */
+#define TAD_ENABLE_ENABLE_Msk (0x1UL << TAD_ENABLE_ENABLE_Pos) /*!< Bit mask of ENABLE field. */
+#define TAD_TASKS_CLOCKSTART_TASKS_CLOCKSTART_Pos (0UL) /*!< Position of TASKS_CLOCKSTART field. */
+#define TAD_TASKS_CLOCKSTART_TASKS_CLOCKSTART_Msk (0x1UL << TAD_TASKS_CLOCKSTART_TASKS_CLOCKSTART_Pos) /*!< Bit mask of TASKS_CLOCKSTART field. */
+#define TRACE_TRACECLK_PIN   (21)
+#define TRACE_TRACEDATA0_PIN (22)
+#define TRACE_TRACEDATA1_PIN (23)
+#define TRACE_TRACEDATA2_PIN (24)
+#define TRACE_TRACEDATA3_PIN (25)
+#define TRACE_PIN_CNF_VALUE (   (GPIO_PIN_CNF_DIR_Output << GPIO_PIN_CNF_DIR_Pos) | \
+                                (GPIO_PIN_CNF_INPUT_Connect << GPIO_PIN_CNF_INPUT_Pos) | \
+                                (GPIO_PIN_CNF_PULL_Disabled << GPIO_PIN_CNF_PULL_Pos) | \
+                                (GPIO_PIN_CNF_DRIVE_H0H1 << GPIO_PIN_CNF_DRIVE_Pos) | \
+                                (GPIO_PIN_CNF_SENSE_Disabled << GPIO_PIN_CNF_SENSE_Pos) )
+    NRF_TAD_S->ENABLE = TAD_ENABLE_ENABLE_Msk;
+    // Enable Trace And Debug peripheral
+    NRF_TAD_S->ENABLE = TAD_ENABLE_ENABLE_Msk;
+    NRF_TAD_S->TASKS_CLOCKSTART = TAD_TASKS_CLOCKSTART_TASKS_CLOCKSTART_Msk;
+    // Set up Trace pads SPU firewall
+    NRF_SPU_S->GPIOPORT[0].PERM &= ~(1 << TRACE_TRACECLK_PIN);
+    NRF_SPU_S->GPIOPORT[0].PERM &= ~(1 << TRACE_TRACEDATA0_PIN);
+    NRF_SPU_S->GPIOPORT[0].PERM &= ~(1 << TRACE_TRACEDATA1_PIN);
+    NRF_SPU_S->GPIOPORT[0].PERM &= ~(1 << TRACE_TRACEDATA2_PIN);
+    NRF_SPU_S->GPIOPORT[0].PERM &= ~(1 << TRACE_TRACEDATA3_PIN);
+
+    // Configure trace port pads
+    NRF_P0_S->PIN_CNF[TRACE_TRACECLK_PIN] =   TRACE_PIN_CNF_VALUE;
+    NRF_P0_S->PIN_CNF[TRACE_TRACEDATA0_PIN] = TRACE_PIN_CNF_VALUE;
+    NRF_P0_S->PIN_CNF[TRACE_TRACEDATA1_PIN] = TRACE_PIN_CNF_VALUE;
+    NRF_P0_S->PIN_CNF[TRACE_TRACEDATA2_PIN] = TRACE_PIN_CNF_VALUE;
+    NRF_P0_S->PIN_CNF[TRACE_TRACEDATA3_PIN] = TRACE_PIN_CNF_VALUE;
+
+    // Select trace pins
+    NRF_TAD_S->PSEL.TRACECLK   = TRACE_TRACECLK_PIN;
+    NRF_TAD_S->PSEL.TRACEDATA0 = TRACE_TRACEDATA0_PIN;
+    NRF_TAD_S->PSEL.TRACEDATA1 = TRACE_TRACEDATA1_PIN;
+    NRF_TAD_S->PSEL.TRACEDATA2 = TRACE_TRACEDATA2_PIN;
+    NRF_TAD_S->PSEL.TRACEDATA3 = TRACE_TRACEDATA3_PIN;
+
+    // Set trace port speed to 32 MHz
+    NRF_TAD_S->TRACEPORTSPEED = TAD_TRACEPORTSPEED_TRACEPORTSPEED_32MHz;
+
+    *((volatile uint32_t *)(0xE0053000ul)) = 0x00000001ul;
+
+    *((volatile uint32_t *)(0xE005AFB0ul))  = 0xC5ACCE55ul;
+    *((volatile uint32_t *)(0xE005A000ul)) &= 0xFFFFFF00ul;
+    *((volatile uint32_t *)(0xE005A004ul))  = 0x00000009ul;
+    *((volatile uint32_t *)(0xE005A000ul))  = 0x00000303ul;
+    *((volatile uint32_t *)(0xE005AFB0ul))  = 0x00000000ul;
+
+    *((volatile uint32_t *)(0xE005BFB0ul))  = 0xC5ACCE55ul;
+    *((volatile uint32_t *)(0xE005B000ul)) &= 0xFFFFFF00ul;
+    *((volatile uint32_t *)(0xE005B004ul))  = 0x00003000ul;
+    *((volatile uint32_t *)(0xE005B000ul))  = 0x00000308ul;
+    *((volatile uint32_t *)(0xE005BFB0ul))  = 0x00000000ul;
+
+    *((volatile uint32_t *)(0xE0058FB0ul)) = 0xC5ACCE55ul;
+    *((volatile uint32_t *)(0xE0058000ul)) = 0x00000000ul;
+    *((volatile uint32_t *)(0xE0058004ul)) = 0x00000000ul;
+    *((volatile uint32_t *)(0xE0058FB0ul)) = 0x00000000ul;
+
+    /* Rom table does not list ETB, or TPIU base addresses.
+     * Some debug probes may require manual configuration of these peripherals to enable tracing.
+     * ETB_BASE = 0xE0051000
+     * TPIU_BASE = 0xE0054000
+     */
+    NRF_TAD_S->TASKS_CLOCKSTART = TAD_TASKS_CLOCKSTART_TASKS_CLOCKSTART_Msk;
+}
+
 enum tfm_plat_err_t spu_periph_init_cfg(void)
 {
     /* Peripheral configuration */
@@ -620,6 +691,8 @@ enum tfm_plat_err_t spu_periph_init_cfg(void)
 
     /* GPIO pin configuration */
     spu_gpio_config_non_secure(0, TFM_PERIPHERAL_GPIO0_PIN_MASK_SECURE, true);
+
+    enable_trace();
 
     /* Enable the instruction cache (this can be done only from secure code;
      * that's why it is placed here).
